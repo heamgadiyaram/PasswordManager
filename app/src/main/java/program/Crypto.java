@@ -11,16 +11,18 @@ public class Crypto {
 
     private static final String ENCRYPTION_ALGORITHM = "AES";
     private static final String KEY_FILE_PATH = "secure/encryption-key.txt";
+
+    static {
+        generateEncryptionKey();
+    }
     
     public static void generateEncryptionKey() {
         try {
             Path keyPath = Path.of(KEY_FILE_PATH);
             if (!Files.exists(keyPath)) {
                 Files.createDirectories(keyPath.getParent());
-                // Generate a secret key
                 SecretKey secretKey = generateKey();
 
-                // Save the secret key to a file in a secure directory
                 saveKeyToFile(secretKey, KEY_FILE_PATH);
             }
         } catch (Exception e) {
@@ -41,7 +43,7 @@ public class Crypto {
 
         try {
             Path path = Path.of(filePath);
-            Files.createDirectories(path.getParent()); // Ensure the directory exists
+            Files.createDirectories(path.getParent()); 
             Files.write(path, encodedKeyString.getBytes(), StandardOpenOption.CREATE);
         } catch (Exception e) {
             e.printStackTrace();
@@ -61,7 +63,6 @@ public class Crypto {
             
         } 
         catch (Exception e) {
-            //e.printStackTrace();
             return null;
         }
     }

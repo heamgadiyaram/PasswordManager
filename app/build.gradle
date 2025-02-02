@@ -33,6 +33,7 @@ dependencies {
     implementation 'com.googlecode.json-simple:json-simple:1.1'
     implementation 'org.openjfx:javafx-controls:17'
     implementation 'org.openjfx:javafx-fxml:17'
+    implementation 'mysql:mysql-connector-java:8.0.33'
 
 }
 

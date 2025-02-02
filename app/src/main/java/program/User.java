@@ -1,190 +1,187 @@
 package program;
-import java.io.*;
+
 import java.util.*;
 import java.security.*;
 
-import org.json.simple.*;
-import org.json.simple.parser.JSONParser;
-import org.json.simple.parser.ParseException;
+import java.sql.*;
 
 public class User {
     private String username;
     private String passwordHash;
     private String salt;
-    private Hashtable<String, String> passwordList;
+    private int userId;
 
-    private static final String USERS_FOLDER = "users/";
-
-    public User(String username, String password){
+    public User(String username, String password, boolean isLogin) {
         this.username = username;
-        this.salt = loadSalt();
-        if(salt == null){
-            this.salt = generateSalt();
-            saveSalt();
-        }
-        this.passwordHash = hash(password);
-        this.passwordList = new Hashtable<>();
 
-        Crypto.generateEncryptionKey();
-    }
-
-    private String loadSalt(){
-        String fileName = USERS_FOLDER + username + ".json";
-
-        try (FileReader reader = new FileReader(fileName)){
-            JSONParser parser = new JSONParser();
-            JSONObject userData = (JSONObject) parser.parse(reader);
-            
-            return (String) userData.get("salt");
-        } 
-        catch (FileNotFoundException e) {
-            return null; // Salt not found, user exists
-        } 
-        catch (IOException | ParseException e) {
-            e.printStackTrace();
-            return null;
+        if (isLogin) {
+            if (!loadUserData(password)) {
+                System.out.println("Invalid username or password.");
+                System.exit(0);
+            }
+        } else {
+            if (isUsernameTaken()) {
+                System.out.println("Username already taken. Please choose another one.");
+                System.exit(0);
+            } else {
+                this.salt = generateSalt();
+                this.passwordHash = hash(password);
+                saveUserToDatabase();
+                System.out.println("New user registered successfully.");
+            }
         }
     }
 
-    private String generateSalt(){
+    private String generateSalt() {
         SecureRandom random = new SecureRandom();
         byte[] saltBytes = new byte[16];
         random.nextBytes(saltBytes);
         return Base64.getEncoder().encodeToString(saltBytes);
     }
 
-    private void saveSalt() {
-        // Save the salt to the user data file
-        String fileName = USERS_FOLDER + username + ".json";
+    public String hash(String input) {
+        String saltedInput = salt + input;
 
-        JSONObject userData = new JSONObject();
-        userData.put("salt", salt);
-
-        try (FileWriter writer = new FileWriter(fileName, true)) {
-            writer.write(userData.toJSONString());
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-    
-
-    public void addPassword(String service, String password){
-        if(passwordList.containsKey(service)){ //check to see if a service already exists
-            System.out.println("Service \"" + service + "\" is already exists.");
-        }
-        else{
-            String encryptedPassword = Crypto.encrypt(password);//ecrypt password
-            passwordList.put(service, encryptedPassword);//add service/password pair
-            System.out.println("Password for service \"" + service + "\" added successfully.");
-
-        }
-        
-    }
-
-    public String getPassword(String service){
-        String encryptedPassword = passwordList.get(service);
-        return (encryptedPassword != null) ? Crypto.decrypt(encryptedPassword) : null;
-    }
-
-    public void deleteService(String service){
-        if(passwordList.containsKey(service)){//check if service exists in the hashtable
-            passwordList.remove(service);//delete the service
-            System.out.println("Service \"" + service + "\" deleted successfully.");
-        }
-        else{
-            System.out.println("Service \"" + service + "\" does not exist.");
-        }
-    }
-
-    public boolean loadUserData(String password) throws ParseException{
-        String fileName = USERS_FOLDER + username + ".json";
-
-        try(FileReader reader = new FileReader(fileName)){
-            JSONParser parser = new JSONParser();
-            JSONObject userData = (JSONObject) parser.parse(reader);
-
-            password = password.trim();
-
-            String savedHash = (String) userData.get("passwordHash");
-
-            if(savedHash != null && savedHash.equals(hash(password))){//If password exists in the user file and the password is correct
-                JSONObject passwordListObject = (JSONObject) userData.get("passwordList");
-                
-                Map<String, String> passwordMap = new HashMap();
-
-                if (passwordListObject != null) {
-                    for (Object key : passwordListObject.keySet()) {
-                        String service = (String) key;
-                        String encryptedPassword = (String) passwordListObject.get(key);
-                        passwordMap.put(service, encryptedPassword);
-                    }
-                }
-
-                passwordList = new Hashtable<>(passwordMap);
-                
-                return true;
-            }
-            else if (savedHash != null && !savedHash.equals(hash(password))){//Password exists in file, but entered password doesn't match it
-                System.out.println("Invalid password. Exiting.");
-                System.exit(1);
-            }
-            else{
-                saveUserData();
-            }
-        }
-        catch(FileNotFoundException e){
-            return false;
-        }
-        catch(IOException e){
-            e.printStackTrace();
-            System.exit(1);
-        }
-        catch(Exception e){
-            e.printStackTrace();
-        }
-
-        return false;
-    }
-
-    public void saveUserData(){
-        String fileName = USERS_FOLDER + username + ".json";//filename to save the data to, corresponds to entered username
-
-        JSONObject userData = new JSONObject();
-        userData.put("salt", salt);
-        userData.put("passwordHash", passwordHash);
-        userData.put("passwordList", passwordList);//add generated salt, hashed password, and passwordList to JSONObject
-
-        try(FileWriter writer = new FileWriter(fileName)){
-            writer.write(userData.toJSONString());//Write data to the file
-            System.out.println("User data saved successfully.");
-        }
-        catch(IOException e){
-            e.printStackTrace();
-        }
-    }
-
-    public String hash(String input){
-        String saltedInput = input + salt;
-
-        try{
+        try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             byte[] hashedBytes = md.digest(saltedInput.getBytes());
 
             StringBuilder hexString = new StringBuilder();
-            for(byte b : hashedBytes){
+            for (byte b : hashedBytes) {
                 String hex = Integer.toHexString(0xff & b);
-                if(hex.length() == 1){
-                    hexString.append('0');//pad with 0 to keep hex format
+                if (hex.length() == 1) {
+                    hexString.append('0');
                 }
                 hexString.append(hex);
             }
             return hexString.toString();
-        }
-        catch (NoSuchAlgorithmException e){
+        } catch (NoSuchAlgorithmException e) {
             e.printStackTrace();
             return null;
         }
     }
+
+    private void saveUserToDatabase() {
+        String query = "INSERT INTO users (username, password_hash, salt) VALUES (?, ?, ?)";
+        try (Connection conn = Database.getConnection();
+                PreparedStatement statement = conn.prepareStatement(query, Statement.RETURN_GENERATED_KEYS)) {
+
+            statement.setString(1, username);
+            statement.setString(2, passwordHash);
+            statement.setString(3, salt);
+            statement.executeUpdate();
+
+            ResultSet rs = statement.getGeneratedKeys();
+            if (rs.next()) {
+                this.userId = rs.getInt(1);
+            }
+            System.out.println("User registered successfully.");
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private boolean loadUserData(String password) {
+        String query = "SELECT id, password_hash, salt FROM users WHERE username = ?";
+        try {
+            Connection conn = Database.getConnection();
+            PreparedStatement statement = conn.prepareStatement(query);
+            statement.setString(1, username);
+            ResultSet rs = statement.executeQuery();
+
+            if (rs.next()) {
+                this.userId = rs.getInt("id");
+                this.salt = rs.getString("salt");
+                this.passwordHash = rs.getString("password_hash");
+
+                if (!this.passwordHash.equals(hash(password))) {
+                    return false;
+                }
+                return true;
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+
+    public void addService(String service, String password) {
+        if (getService(service) != null) {
+            System.out.println("Service already exists.");
+            return;
+        }
+
+        String encryptedPassword = Crypto.encrypt(password);
+        String query = "INSERT INTO services (user_id, service_name, encrypted_password) VALUES (?, ?, ?)";
+
+        try (Connection conn = Database.getConnection();
+                PreparedStatement statement = conn.prepareStatement(query)) {
+
+            statement.setInt(1, userId);
+            statement.setString(2, service);
+            statement.setString(3, encryptedPassword);
+            statement.executeUpdate();
+            System.out.println("Password for " + service + " added.");
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public String getService(String service) {
+        String query = "SELECT encrypted_password FROM services WHERE user_id = ? AND service_name = ?";
+
+        try {
+            Connection conn = Database.getConnection();
+            PreparedStatement statement = conn.prepareStatement(query);
+            statement.setInt(1, userId);
+            statement.setString(2, service);
+            ResultSet rs = statement.executeQuery();
+
+            if (rs.next()) {
+                return Crypto.decrypt(rs.getString("encrypted_password"));
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    public void deleteService(String service) {
+        String query = "DELETE FROM services WHERE user_id = ? AND service_name = ?";
+
+        try {
+
+            Connection conn = Database.getConnection();
+            PreparedStatement statement = conn.prepareStatement(query);
+            statement.setInt(1, userId);
+            statement.setString(2, service);
+            int rowsAffected = statement.executeUpdate();
+
+            if (rowsAffected > 0) {
+                System.out.println("Service \"" + service + "\" deleted.");
+            } else {
+                System.out.println("Service \"" + service + "\" not found.");
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private boolean isUsernameTaken() {
+        String query = "SELECT id FROM users WHERE username = ?";
+        try {
+
+            Connection conn = Database.getConnection();
+            PreparedStatement statement = conn.prepareStatement(query);
+            statement.setString(1, username);
+            ResultSet rs = statement.executeQuery();
+
+            if (rs.next()) {
+                return true;
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
 }
-
-
